@@ -32,6 +32,48 @@ jobs:
             > build/native-polar/compiler.sha256
           tar -C build/native-polar/stage -czf build/native-polar/native-stage.tar.gz .
           sha256sum build/native-polar/native-stage.tar.gz > build/native-polar/native-stage.sha256
+      - name: Split the unchanged archive for bounded consumer downloads
+        shell: sh
+        run: |
+          test "$(stat -c %s build/native-polar/native-stage.tar.gz)" -le 943718400
+          split --number=2 --numeric-suffixes=0 --suffix-length=2 \
+            build/native-polar/native-stage.tar.gz build/native-polar/native-stage.part-
+          test -s build/native-polar/native-stage.part-00
+          test -s build/native-polar/native-stage.part-01
+          sha256sum build/native-polar/native-stage.part-00 \
+            build/native-polar/native-stage.part-01 > build/native-polar/native-stage.parts.sha256
+          cat build/native-polar/native-stage.part-00 \
+            build/native-polar/native-stage.part-01 > build/native-polar/native-stage.reassembled.tar.gz
+          cmp build/native-polar/native-stage.tar.gz build/native-polar/native-stage.reassembled.tar.gz
+          rm build/native-polar/native-stage.reassembled.tar.gz
+      - name: Deliver the first unchanged archive part
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-polar-runtime-part-00
+          path: |
+            build/native-polar/native-stage.part-00
+            build/native-polar/native-stage.parts.sha256
+            build/native-polar/native-stage.sha256
+            build/native-polar/compiler.sha256
+            build/native-polar/source.txt
+            build/native-polar/scalar-runtime-packages.tsv
+            build/native-polar/ick-runtime.sha256
+          if-no-files-found: error
+          retention-days: 90
+      - name: Deliver the second unchanged archive part
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-polar-runtime-part-01
+          path: |
+            build/native-polar/native-stage.part-01
+            build/native-polar/native-stage.parts.sha256
+            build/native-polar/native-stage.sha256
+            build/native-polar/compiler.sha256
+            build/native-polar/source.txt
+            build/native-polar/scalar-runtime-packages.tsv
+            build/native-polar/ick-runtime.sha256
+          if-no-files-found: error
+          retention-days: 90
       - name: Preserve runtime dependency receipts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
