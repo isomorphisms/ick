@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+import platform
 import shutil
 import subprocess
 import tempfile
@@ -17,6 +18,8 @@ def require(condition, message):
 def main():
     compiler = shutil.which(base.CC)
     require(compiler is not None, "host compiler unavailable")
+    host_machine = platform.machine()
+    require(bool(host_machine), "host architecture unavailable")
     commands, failures, lanes = [], [], {}
     sanitizer_environment = dict(os.environ)
     lanes["leak-sanitizer"] = "NOT_RUN: not yet probed"
@@ -60,7 +63,7 @@ def main():
                 result=run([str(bad),"--pipe"],input=b"1 2\n",env=sanitizer_environment)
                 require(result.returncode!=0 and b"AddressSanitizer" in result.stderr, "far overwrite undetected")
                 failures.append("far-output-overwrite")
-            lanes[sanitizer]="PASS: host x86-64"
+            lanes[sanitizer]=f"PASS: host {host_machine}"
         binary=folder / "allocation-failures"
         built=run([compiler,*base.FLAGS,str(base.SOURCE),str(Path(__file__).with_name("fail_alloc.c")),
                    "-Wl,--wrap=malloc","-Wl,--wrap=calloc","-o",str(binary)])
@@ -100,8 +103,9 @@ def main():
         else:
             result=run([str(binary),"--pipe"],input=b"ffffffff ffffffff\n")
             require(result.returncode==0 and int(result.stdout,16)==(2**32-1)**2,"ordinary32 failure")
-            lanes["ordinary32"]="PASS: host x86-32, not Android"
+            lanes["ordinary32"]="PASS: host compiler -m32 target, not Android"
     print(json.dumps({"job":"MB02","status":"PASS_SCOPED","lanes":lanes,
+                      "host_machine":host_machine,
                       "mutants_rejected":failures,"commands":commands}))
 
 

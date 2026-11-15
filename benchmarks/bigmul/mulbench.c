@@ -156,8 +156,8 @@ static int from_hex(const char *s, uint32_t **words, size_t *count, int *neg) {
 static void print_hex(const uint32_t *a, size_t n, int negative) {
     while (n > 1 && !a[n-1]) --n;
     if (negative && (n != 1 || a[0])) putchar('-');
-    printf("%x", a[n-1]);
-    for (size_t i=n-1; i>0; --i) printf("%08x", a[i-1]);
+    printf("%" PRIx32, a[n-1]);
+    for (size_t i=n-1; i>0; --i) printf("%08" PRIx32, a[i-1]);
     putchar('\n');
 }
 /* Bounded source protocol; this limit is in input bytes, not operand bits. */
