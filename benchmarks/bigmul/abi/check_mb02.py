@@ -161,37 +161,10 @@ class MB02(unittest.TestCase):
                     self.assertNotEqual(result.returncode, 0, name)
                     self.assertEqual(result.stdout, b"", name)
 
-    def test_low_level_schoolbook_refuses_invalid_lengths_without_access(self):
-        probe = self.directory / "direct-call.c"
+    def test_reusable_direct_call_guard_and_provider_defects(self):
+        probe = Path(__file__).with_name("direct_call_guard.c")
         binary = self.directory / "direct-call"
         obj = self.directory / "mulbench.o"
-        probe.write_text(
-            "#include <stdint.h>\n#include <stddef.h>\n"
-            "#include <stdint.h>\n"
-            "extern int mul_schoolbook(const uint32_t*,size_t,"
-            "const uint32_t*,size_t,uint32_t*);\n"
-            "int main(void) {\n"
-            " uint32_t a[2]={UINT32_MAX,UINT32_MAX};\n"
-            " uint32_t b[2]={UINT32_MAX,UINT32_MAX};\n"
-            " uint32_t out[4]={0xa5a5a5a5,0xa5a5a5a5,0xa5a5a5a5,0xa5a5a5a5};\n"
-            " if(mul_schoolbook(0,1,b,1,out)==0) return 1;\n"
-            " if(mul_schoolbook(a,1,0,1,out)==0) return 2;\n"
-            " if(mul_schoolbook(a,0,b,1,out)==0) return 3;\n"
-            " if(mul_schoolbook(a,SIZE_MAX,b,1,out)==0) return 4;\n"
-            " if(mul_schoolbook(a,1,b,SIZE_MAX,out)==0) return 5;\n"
-            " if(mul_schoolbook(a,2,b,2,out)!=0) return 6;\n"
-            " if(out[0]!=1||out[1]!=0||out[2]!=UINT32_MAX-1||"
-            "out[3]!=UINT32_MAX) return 7;\n"
-            " if(a[0]!=UINT32_MAX||a[1]!=UINT32_MAX||"
-            "b[0]!=UINT32_MAX||b[1]!=UINT32_MAX) return 8;\n"
-            " uint32_t small_a[2]={1,0}, small_b[1]={2};\n"
-            " uint32_t leading[3]={11,22,33};\n"
-            " if(mul_schoolbook(small_a,2,small_b,1,leading)!=0) return 9;\n"
-            " if(leading[0]!=2||leading[1]!=0||leading[2]!=0)"
-            "return 10;\n"
-            " return 0;\n}\n",
-            encoding="utf-8",
-        )
         subprocess.run(
             [CC, *FLAGS, "-Dmain=ick_mulbench_other_main", "-c",
              str(SOURCE), "-o", str(obj)],
@@ -203,6 +176,15 @@ class MB02(unittest.TestCase):
         )
         result = run_program(binary)
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(b"admission_refusals\t", result.stdout)
+        self.assertIn(b"MB02_DIRECT_CALL_GUARD\tPASS", result.stdout)
+        for defect in ("before-output", "after-output", "alter-input",
+                       "omit-upper-zero", "no-write", "status-after-output",
+                       "wrong-answer"):
+            with self.subTest(direct_defect=defect):
+                result = run_program(binary, b"", defect)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertNotIn(b"MB02_DIRECT_CALL_GUARD\tPASS", result.stdout)
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
+HARNESS_SOURCES = (ROOT / "mulbench.c", ROOT / "abi/checked_product.h")
 sys.path.insert(0, str(ROOT))
 from test_mulbench import as_hex, cases
 
@@ -34,6 +35,16 @@ def validate_identity(identity, executable):
         raise Refusal("identity must be an object")
     if identity.get("binary_sha256") != digest(executable):
         raise Refusal("selected executable hash does not match identity")
+    if "build" in identity or "harness_sha256" in identity or "harness_sources" in identity:
+        recorded = identity.get("harness_sources")
+        expected_paths = {str(path.resolve()) for path in HARNESS_SOURCES}
+        if not isinstance(recorded, dict) or set(recorded) != expected_paths:
+            raise Refusal("harness source dependency set mismatch")
+        for path in HARNESS_SOURCES:
+            if recorded[str(path.resolve())] != digest(path):
+                raise Refusal(f"harness source identity changed: {path}")
+        if identity.get("harness_sha256") != digest(ROOT / "mulbench.c"):
+            raise Refusal("harness source identity changed: mulbench.c")
     if identity.get("role") not in ("candidate", "baseline", "smoke"):
         raise Refusal("missing explicit provider role")
     if not identity.get("provider") or not identity.get("profile"):
@@ -72,6 +83,8 @@ def build_provider(source, executable, compiler, flags, role, provider, profile)
     identity = {"role": role, "provider": provider, "profile": profile,
                 "binary_sha256": digest(executable),
                 "sources": {str(source): digest(source)},
+                "harness_sources": {str(path.resolve()): digest(path)
+                                    for path in HARNESS_SOURCES},
                 "harness_sha256": digest(ROOT / "mulbench.c"), "build": receipt}
     validate_identity(identity, executable)
     return identity

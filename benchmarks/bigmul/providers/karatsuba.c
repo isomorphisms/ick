@@ -2,6 +2,21 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef MB17_TRACE
+#include "../traces/recursive_trace.h"
+#define MB17_ENTER(a,b,n) size_t trace_node = mb17_recursive_enter(a,b,n)
+#define MB17_SCRATCH(kind,n) mb17_recursive_scratch(trace_node,kind,n)
+#define MB17_DIFFERENCE(a,b,n) mb17_recursive_difference(trace_node,a,b,n)
+#define MB17_LEAF(n) mb17_recursive_leaf(trace_node,n)
+#define MB17_LEAVE(out,n,status) mb17_recursive_leave(trace_node,out,n,status)
+#else
+#define MB17_ENTER(a,b,n) ((void)0)
+#define MB17_SCRATCH(kind,n) ((void)0)
+#define MB17_DIFFERENCE(a,b,n) ((void)0)
+#define MB17_LEAF(n) ((void)0)
+#define MB17_LEAVE(out,n,status) ((void)0)
+#endif
+
 extern int mul_schoolbook(const uint32_t *, size_t, const uint32_t *, size_t, uint32_t *);
 
 static int compare(const uint32_t *a, const uint32_t *b, size_t n) {
@@ -43,16 +58,24 @@ static void difference(uint32_t *out, const uint32_t *a, const uint32_t *b, size
 /* Equal power-of-two widths. Difference form keeps recursive operands at
  * exactly half width; the cross term alone needs an extra carry word. */
 static int recursive(const uint32_t *a, const uint32_t *b, size_t n, uint32_t *out) {
-    if (n <= 16) return mul_schoolbook(a, n, b, n, out);
+    MB17_ENTER(a,b,n);
+    if (n <= 16) {
+        MB17_LEAF(n);
+        int status = mul_schoolbook(a, n, b, n, out);
+        MB17_LEAVE(out,n,status);
+        return status;
+    }
     size_t half = n / 2;
     uint32_t *storage = calloc(5*n + 1, sizeof(*storage));
-    if (!storage) return 2;
+    if (!storage) { MB17_LEAVE(out,n,2); return 2; }
+    MB17_SCRATCH("scratch-allocate",5*n+1);
     uint32_t *low = storage, *high = low+n, *delta = high+n;
     uint32_t *left_delta = delta+n, *right_delta = left_delta+half;
     uint32_t *cross = right_delta+half;
     int left_sign = compare(a+half, a, half), right_sign = compare(b+half, b, half);
     difference(left_delta, a+half, a, half, left_sign);
     difference(right_delta, b+half, b, half, right_sign);
+    MB17_DIFFERENCE(left_delta,right_delta,half);
     int failed = recursive(a, b, half, low) || recursive(a+half, b+half, half, high)
               || recursive(left_delta, right_delta, half, delta);
     if (!failed) {
@@ -63,7 +86,9 @@ static int recursive(const uint32_t *a, const uint32_t *b, size_t n, uint32_t *o
         failed |= add_at(out, 2*n, low, n, 0) || add_at(out, 2*n, high, n, n)
                || add_at(out, 2*n, cross, n+1, half);
     }
+    MB17_SCRATCH("scratch-free",5*n+1);
     free(storage);
+    MB17_LEAVE(out,n,failed);
     return failed;
 }
 

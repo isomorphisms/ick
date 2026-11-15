@@ -17,8 +17,35 @@ are refused. A trace identity is a binding receipt, not proof of binary semantic
 `check_mb17.py` emits raw traces and separate process-endpoint timings for the
 traced and plain controls. Startup and formatting enter both distributions;
 the difference is not claimed as pure observer overhead or multiplication time.
-The retained recursive control is not established here. Future recursive,
-transform/precision/provider events require a versioned schema extension and
-executed provider hooks. Paper traces wait for MB16; these control traces cannot
-be renamed to a paper profile. MB17's full recursive/provider scope remains
-partial until those sources are qualified.
+## Retained recursive control
+
+`check_recursive.pi` executes the existing MB05 Karatsuba provider through the
+checked Ithon frontend. Its separate `recursive-trace-v1` format leaves the
+schoolbook format unchanged. Compile-time hooks record real call entry/return,
+parent-child relations, padded operand and subproduct snapshots, difference
+buffer movement, scratch allocation/free and schoolbook provider calls. These
+are logical call and limb coordinates. They do not measure physical addresses,
+cache misses, all primitive operations inside the opaque schoolbook call, or a
+paper transform. Native builds without `MB17_TRACE` preprocess the hooks away.
+
+The observer accepts at most 64 stored limbs per operand and 128 events. The
+validator independently checks every returned subproduct using exact integers,
+the low/high/absolute-difference child operands, exact tree size, call ordering,
+scratch lifetimes and final output words. Four fixtures cover a leaf, one and
+two recursive levels, maximal limbs, unequal widths and retained high zeroes.
+Identity/completeness, units, dropped/duplicate events, missing frees, wrong
+parents and altered returned subproducts have targeted refusals. Source and
+binary hashes bind the run; the source manifest additionally binds both trace
+and provider headers, the linked harness, and its shared guard header when
+present. Metadata is binding provenance, not independent proof of semantics.
+
+The verifier prints a separate six-trial alternating-order endpoint experiment.
+Those raw integer nanoseconds include startup, formatting and collection; their
+difference is not pure arithmetic observer overhead. Set
+`MB17_RECURSIVE_RAW` to an absolute output directory to retain all four complete
+traces plus `sources.tsv` beside the printed receipt. The native workflow uses
+the explicitly pinned Ithon frontend; ordinary Python is not an execution path
+for this new verifier.
+
+Paper traces still wait for MB16. Transform, precision-change and paper-provider
+events remain unexecuted future scope and cannot be renamed from these controls.

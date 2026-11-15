@@ -1,0 +1,11 @@
+module RecursiveCount
+
+%default total
+
+-- Domain attempt; NOT_RUN until this consumer has a verified Idriç entrypoint.
+callCount : Nat -> Nat
+callCount Z = 1
+callCount (S depth) = 1 + 3 * callCount depth
+
+main : IO ()
+main = printLn (callCount 2)

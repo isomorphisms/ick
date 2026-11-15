@@ -24,5 +24,6 @@ rank `ceil(probability * count)` with the first value at probability zero. These
 are quantiles of batch averages, not per-request tail latency.
 
 `python3 benchmarks/bigmul/timing/check_mb06.py` emits the complete raw run and
-command receipt. Shared-harness integration waits for accepted MB02. This is the
+command receipt. The shared C mode workload reuses this engine; the historical
+`mulbench --bench` command remains a separate smoke diagnostic. This is the
 host GCC control lane; qualified ICK and device lanes remain unqualified here.

@@ -6,6 +6,8 @@ and output-binary paths, or an explicit binary and its identity manifest. It
 never selects `candidate.example.c` implicitly. Build recipes are argument arrays.
 Compiler flags, compiler/binary/source hashes, outputs, status and input identity
 are retained in the emitted JSON receipt, as required by the campaign interface.
+Build identities bind both `mulbench.c` and the reusable
+`abi/checked_product.h`; a missing or changed harness dependency refuses replay.
 
 The existing signed hex corpus is checked against Python integers. Full raw limb
 write coverage is an MB02 direct-call guard responsibility: hex output strips

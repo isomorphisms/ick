@@ -16,10 +16,11 @@
 #include <time.h>
 #include <errno.h>
 #include <ctype.h>
+#include "abi/checked_product.h"
 
 int mul_schoolbook(const uint32_t *a, size_t na,
                    const uint32_t *b, size_t nb, uint32_t *out) {
-    /* This low-level ABI requires nonoverlapping, aligned arrays.
+    /* Aligned output must not overlap either read-only input; inputs may alias.
      * Check nulls and lengths before computing a byte count on 32-bit hosts. */
     if (!a || !b || !out || !na || !nb ||
         nb > SIZE_MAX / sizeof(*out) ||
@@ -178,50 +179,6 @@ static int read_record(char *line, size_t *length) {
     return 1;
 }
 
-/* Correctness-only adapter; timed --bench still measures raw MUL. It detects
- * output under/overwrite by one word, input mutation and omitted output
- * stores using different prefills. Arbitrary overflow still needs ASan. */
-static int checked_protocol_product(const uint32_t *a, size_t na,
-                                    const uint32_t *b, size_t nb,
-                                    uint32_t *out) {
-    if (!a || !b || !out || !na || !nb ||
-        nb > SIZE_MAX / sizeof(*out) - 2 ||
-        na > SIZE_MAX / sizeof(*out) - 2 - nb) return 1;
-    size_t count = na + nb;
-    if (na > SIZE_MAX / sizeof(*a) || nb > SIZE_MAX / sizeof(*b))
-        return 1;
-    size_t abytes = na * sizeof(*a), bbytes = nb * sizeof(*b);
-    size_t obytes = count * sizeof(*out);
-    uint32_t *saved_a = malloc(abytes), *saved_b = malloc(bbytes);
-    uint32_t *guarded = malloc((count + 2) * sizeof(*guarded));
-    uint32_t *first = malloc(obytes);
-    if (!saved_a || !saved_b || !guarded || !first) {
-        free(saved_a); free(saved_b); free(guarded); free(first);
-        return 1;
-    }
-    memcpy(saved_a, a, abytes);
-    memcpy(saved_b, b, bbytes);
-    int failure = 0;
-    for (int pass = 0; pass < 2; ++pass) {
-        guarded[0] = UINT32_C(0xc0deface);
-        guarded[count + 1] = UINT32_C(0x5afe0123);
-        memset(guarded + 1, pass ? 0x5a : 0xa5, obytes);
-        if (MUL(a, na, b, nb, guarded + 1) != 0 ||
-            guarded[0] != UINT32_C(0xc0deface) ||
-            guarded[count + 1] != UINT32_C(0x5afe0123) ||
-            memcmp(a, saved_a, abytes) ||
-            memcmp(b, saved_b, bbytes)) {
-            failure = 1;
-            break;
-        }
-        if (pass == 0) memcpy(first, guarded + 1, obytes);
-        else if (memcmp(first, guarded + 1, obytes)) failure = 1;
-    }
-    if (!failure) memcpy(out, first, obytes);
-    free(saved_a); free(saved_b); free(guarded); free(first);
-    return failure;
-}
-
 static int protocol(void) {
     char *line = malloc(MAX_RECORD_CHARS + 1);
     if (!line) { fprintf(stderr, "protocol record allocation failed\n"); return 3; }
@@ -276,7 +233,7 @@ static int protocol(void) {
         out = malloc((na + nb) * sizeof(*out));
         if (!out) { free(a); free(b); free(line); return 3; }
         memset(out, 0xa5, (na + nb) * sizeof(*out));
-        if (checked_protocol_product(a, na, b, nb, out)) {
+        if (mb02_checked_product(MUL, a, na, na, b, nb, nb, out, na + nb)) {
             fprintf(stderr, "candidate violated the checked C ABI\n");
             free(a); free(b); free(out); free(line);
             return 4;

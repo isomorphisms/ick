@@ -71,6 +71,11 @@ jobs:
         run: python3 benchmarks/bigmul/abi/check_mb02.py
       - name: MB-02 host sanitizer, overflow and allocation failure controls
         run: python3 benchmarks/bigmul/abi/check_mb02_extended.py
+      - name: MB-17 executed recursive control and trace refusals
+        env:
+          ITHON_CHECK_RECEIPT: ${{ github.workspace }}/benchmarks/bigmul/release/last-run/recursive-trace-ithon.jsonl
+          MB17_RECURSIVE_RAW: ${{ github.workspace }}/benchmarks/bigmul/release/last-run/recursive-traces
+        run: .benchmark-tools/ithon/ithon benchmarks/bigmul/traces/check_recursive.pi
       - name: MB-10 text parser and conversion sanitizer controls
         env:
           ITHON_CHECK_RECEIPT: ${{ github.workspace }}/benchmarks/bigmul/release/last-run/text-sanitizers-ithon.jsonl

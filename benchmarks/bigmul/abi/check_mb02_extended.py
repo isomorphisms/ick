@@ -49,6 +49,18 @@ def main():
                     lanes["leak-sanitizer"] = "AVAILABLE: detector runtime only, no comprehensive leak fixture claim"
             require(result.returncode==0 and [int(x,16) for x in result.stdout.splitlines()]==[(2**64-1)**2,0],
                     f"sanitizer baseline failed: {commands[-1]}")
+            direct_object=folder / (sanitizer.replace(",", "-") + "-direct.o")
+            direct_binary=folder / (sanitizer.replace(",", "-") + "-direct")
+            direct_flags=[compiler,*base.FLAGS,"-fsanitize="+sanitizer,
+                          "-fno-omit-frame-pointer","-no-pie"]
+            require(run([*direct_flags,"-Dmain=unused_main","-c",str(base.SOURCE),
+                         "-o",str(direct_object)]).returncode==0,"direct guard sanitizer object build")
+            require(run([*direct_flags,str(Path(__file__).with_name("direct_call_guard.c")),
+                         str(direct_object),"-o",str(direct_binary)]).returncode==0,
+                    "direct guard sanitizer link")
+            result=run([str(direct_binary)],env=sanitizer_environment)
+            require(result.returncode==0 and b"MB02_DIRECT_CALL_GUARD\tPASS" in result.stdout,
+                    f"direct guard sanitizer/admission checks failed: {commands[-1]}")
             # A write two words beyond the checked guard must be caught by ASan.
             if sanitizer == "address,undefined":
                 provider=folder / "far-overwrite.c"
@@ -91,7 +103,7 @@ def main():
                 require(old in text, "overflow fixture drifted")
                 source.write_text(text.replace(old,"0",1))
             obj=folder / "overflow.o"
-            require(run([compiler,*base.FLAGS,"-Dmain=unused_main","-c",str(source),"-o",str(obj)]).returncode==0,"probe object build")
+            require(run([compiler,*base.FLAGS,"-I",str(base.ROOT),"-Dmain=unused_main","-c",str(source),"-o",str(obj)]).returncode==0,"probe object build")
             require(run([compiler,*base.FLAGS,str(probe),str(obj),"-o",str(binary)]).returncode==0,"probe link")
             result=run([str(binary)])
             require((result.returncode!=0)==mutant, "overflow check bypass undetected")

@@ -8,7 +8,7 @@ import subprocess
 import sys
 import tempfile
 
-from runner import ROOT, build_provider, digest
+from runner import ROOT, HARNESS_SOURCES, build_provider, digest
 
 
 def require(condition, message):
@@ -74,6 +74,34 @@ def main():
             require(run.returncode != 0, f"identity defect accepted: {defect}")
             receipt["runs"].append({"mutant": defect, "exit_status": run.returncode,
                                     "stdout": json.loads(run.stdout)})
+        for defect in ("missing-harness-record", "missing-harness-header",
+                       "stale-harness-header", "stale-harness"):
+            altered = json.loads(json.dumps(identity))
+            header = str(HARNESS_SOURCES[1].resolve())
+            if defect == "missing-harness-record":
+                del altered["harness_sources"]
+                del altered["harness_sha256"]
+                diagnostic = "harness source dependency set mismatch"
+            elif defect == "missing-harness-header":
+                del altered["harness_sources"][header]
+                diagnostic = "harness source dependency set mismatch"
+            elif defect == "stale-harness-header":
+                altered["harness_sources"][header] = "0" * 64
+                diagnostic = "harness source identity changed"
+            else:
+                altered["harness_sha256"] = "0" * 64
+                diagnostic = "harness source identity changed"
+            manifest.write_text(json.dumps(altered))
+            for optimized in (False, True):
+                run = subprocess.run([sys.executable, *(["-O"] if optimized else []),
+                                      str(Path(__file__).with_name("runner.py")),
+                                      "--binary", str(binary), "--identity", str(manifest)],
+                                     capture_output=True, text=True, timeout=5)
+                require(run.returncode != 0 and diagnostic in run.stdout,
+                        f"harness dependency defect accepted or wrong refusal: {defect}")
+                receipt["runs"].append({"mutant": defect, "optimized": optimized,
+                                        "exit_status": run.returncode,
+                                        "stdout": json.loads(run.stdout)})
         source.write_text("invalid C source\n")
         run = subprocess.run([sys.executable, str(Path(__file__).with_name("runner.py")),
                               "--candidate-source", str(source), "--output-binary", str(binary)],
