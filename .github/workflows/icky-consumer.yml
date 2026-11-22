@@ -13,9 +13,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  qualified-parser:
+    uses: dilapidated-shed/icky/.github/workflows/icky-located-idric.yml@15c9ab83ffc98129292873aee378d4af0e14a3ce
+    with:
+      parser_revision: 15c9ab83ffc98129292873aee378d4af0e14a3ce
+
   native-consumer:
+    needs: qualified-parser
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    env:
+      ICKY_REVISION: ${{ needs.qualified-parser.outputs.parser_revision }}
+      ICKY_PACKAGE_SHA256: ${{ needs.qualified-parser.outputs.package_sha256 }}
     steps:
       - name: Check out exact ICK source and GCC reference
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
@@ -23,21 +32,20 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           submodules: true
           persist-credentials: false
-      - name: Acquire original qualified Idriç parser and runtime
+      - name: Acquire independently replayed Idriç parser and runtime
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          artifact-ids: '11788713633'
-          repository: dilapidated-shed/icky
-          run-id: '38344914067'
-          github-token: ${{ github.token }}
+          artifact-ids: ${{ needs.qualified-parser.outputs.package_artifact_id }}
           merge-multiple: true
           path: .icky-evidence
-      - name: Verify the complete immutable package before extraction
-        run: sha256sum -c qualification/icky-consumer/package.sha256
-      - name: Prepare the unchanged native parser closure
+      - name: Verify and extract the independently replayed package
         run: |
+          package=".icky-evidence/located-$ICKY_REVISION/icky-native.tar.gz"
+          printf '%s\n' "$ICKY_REVISION" | grep -Ex '[0-9a-f]{40}'
+          printf '%s\n' "$ICKY_PACKAGE_SHA256" | grep -Ex '[0-9a-f]{64}'
+          printf '%s  %s\n' "$ICKY_PACKAGE_SHA256" "$package" | sha256sum --check --strict
           mkdir .icky-package
-          tar -xzf .icky-evidence/located-bc2aad9006d3d44e896d2f5092a7ac82e7bf066b/icky-native.tar.gz -C .icky-package
+          tar -xzf "$package" -C .icky-package
       - name: Check out the qualified native bootstrap recipe
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
@@ -80,6 +88,7 @@ jobs:
       - name: Record exact source and produced compiler identities
         run: |
           git rev-parse HEAD > "$RUNNER_TEMP/icky-consumer/source.txt"
+          printf '%s\t%s\n' "$ICKY_REVISION" "$ICKY_PACKAGE_SHA256" > "$RUNNER_TEMP/icky-consumer/parser-material.tsv"
           sha256sum "$RUNNER_TEMP/ick-stage/bin/gcc" "$RUNNER_TEMP/ick-stage/libexec/gcc/x86_64-pc-linux-gnu/17.0.0/cc1" > "$RUNNER_TEMP/icky-consumer/compiler.sha256"
           sha256sum "$RUNNER_TEMP/icky-consumer/positive-O0" "$RUNNER_TEMP/icky-consumer/positive-O2" > "$RUNNER_TEMP/icky-consumer/outputs.sha256"
       - name: Retain source maps, parser output, process observations and programs

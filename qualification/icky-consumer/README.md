@@ -39,15 +39,19 @@ producer admission. BC-P01-S01's approved ICK role/witness interface is still
 an upstream obligation: its retained observer currently assumes clang-18.
 No replacement admission system is introduced here.
 
-The hosted workflow builds the exact compiler on a disposable runner and uses
-the original ICKY package from run 38344914067, artifact 11788713633, parser
-source `bc2aad9006d3d44e896d2f5092a7ac82e7bf066b`, built by canonical Idriç
-`2734ac5a86610eddfab73b1644d72b4ac85a65ee`. The complete inner tar SHA-256
-is `e897b96dd7485af9eec79644e2f5db36bc12b8ff38251f39eb97a5e0778f7734`.
-Changing or losing this artifact refuses qualification; it is never rebuilt
-inside the consumer. The compiler invokes the package's declared native ELF /
-Chez / application entrypoint directly with a fixed environment. Its separate
-Grease replay harness is not substituted with another shell.
+The hosted workflow calls the pinned ICKY producer and independent replay
+before building the exact compiler on a disposable runner. It downloads the
+same-run artifact by ID and verifies its inner tar against the digest from the
+replay job. The compiler consumes those exact bytes and records the parser
+source revision and package digest. It invokes the package's native ELF,
+Chez runtime and application directly with a fixed environment. ICKY's
+separate package replay runs through Grease.
+
+The original October run 38344914067 produced an independently replayed package
+at ICKY source `bc2aad9006d3d44e896d2f5092a7ac82e7bf066b` with inner tar SHA-256
+`e897b96dd7485af9eec79644e2f5db36bc12b8ff38251f39eb97a5e0778f7734`.
+That evidence applies to the archived run. Each new qualification binds its
+own package digest before compiling.
 
 The test executable exercises the C++ foreign protocol boundary using output
 from the real Idriç parser. Hosted positive programs assert C octal/decimal
