@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  AICI_K3_REVISION: 3e118022d1dbd6215c7397b904f223186a20d4e6
+  AICI_K3_REVISION: afdc72def44ac8b4d04baf5130df47026611b8b6
 
 jobs:
   qualified-parser:
