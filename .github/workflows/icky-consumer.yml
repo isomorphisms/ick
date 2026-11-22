@@ -12,16 +12,22 @@ concurrency:
   group: icky-consumer-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
+env:
+  AICI_K3_REVISION: 3e118022d1dbd6215c7397b904f223186a20d4e6
+
 jobs:
   qualified-parser:
-    uses: dilapidated-shed/icky/.github/workflows/icky-located-idric.yml@15c9ab83ffc98129292873aee378d4af0e14a3ce
+    uses: dilapidated-shed/icky/.github/workflows/icky-located-idric.yml@7e54fdb7402dab9baf44356c120c90e03805e5f8
     with:
-      parser_revision: 15c9ab83ffc98129292873aee378d4af0e14a3ce
+      parser_revision: 7e54fdb7402dab9baf44356c120c90e03805e5f8
 
   native-consumer:
     needs: qualified-parser
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    outputs:
+      compiler_artifact_id: ${{ steps.k3-upload.outputs.artifact-id }}
+      compiler_archive_sha256: ${{ steps.k3-material.outputs.archive_sha256 }}
     env:
       ICKY_REVISION: ${{ needs.qualified-parser.outputs.parser_revision }}
       ICKY_PACKAGE_SHA256: ${{ needs.qualified-parser.outputs.package_sha256 }}
@@ -97,5 +103,109 @@ jobs:
         with:
           name: icky-compiler-consumer-${{ github.event.pull_request.head.sha || github.sha }}
           path: ${{ runner.temp }}/icky-consumer
+          if-no-files-found: error
+          retention-days: 30
+      - name: Check out the independent compiler counterexample
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: isomorphisms/ai-ci
+          ref: ${{ env.AICI_K3_REVISION }}
+          path: .aici-k3
+          sparse-checkout: tests/semantic-oracles/icky-compiler
+          persist-credentials: false
+      - name: Rebuild the counterexample frontend and preserve the genuine stage
+        run: |
+          test "$(git -C .aici-k3 rev-parse HEAD)" = "$AICI_K3_REVISION"
+          mutation="$GITHUB_WORKSPACE/.aici-k3/tests/semantic-oracles/icky-compiler/ignored-assignment.patch"
+          patch --batch --forward --fuzz=0 -p1 -d "$RUNNER_TEMP/ick-build/source" -i "$mutation"
+          make -C "$RUNNER_TEMP/ick-build/objects" -j2 all-gcc
+          mkdir "$RUNNER_TEMP/k3-mutant"
+          cp "$RUNNER_TEMP/ick-build/objects/gcc/cc1" "$RUNNER_TEMP/k3-mutant/cc1"
+          sha256sum -c "$RUNNER_TEMP/icky-consumer/compiler.sha256"
+      - name: Archive exact compiler inputs for a fresh runner
+        id: k3-material
+        working-directory: ${{ runner.temp }}
+        run: |
+          cp icky-consumer/source.txt k3-mutant/ick-source.txt
+          sha256sum k3-mutant/cc1 ick-stage/bin/gcc ick-stage/libexec/gcc/x86_64-pc-linux-gnu/17.0.0/cc1 > k3-mutant/binaries.sha256
+          tar -czf k3-native.tar.gz ick-stage k3-mutant
+          sha256sum k3-native.tar.gz | cut -d ' ' -f 1 | sed 's/^/archive_sha256=/' >> "$GITHUB_OUTPUT"
+      - name: Retain the genuine and counterexample compiler inputs
+        id: k3-upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: icky-k3-compiler-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/k3-native.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 14
+
+  independent-host:
+    needs: [qualified-parser, native-consumer]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      ICK_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+      ICKY_REVISION: ${{ needs.qualified-parser.outputs.parser_revision }}
+      ICKY_PACKAGE_SHA256: ${{ needs.qualified-parser.outputs.package_sha256 }}
+      COMPILER_ARCHIVE_SHA256: ${{ needs.native-consumer.outputs.compiler_archive_sha256 }}
+    steps:
+      - name: Check out the independent AICI oracle
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: isomorphisms/ai-ci
+          ref: ${{ env.AICI_K3_REVISION }}
+          sparse-checkout: tests/semantic-oracles/icky-compiler
+          persist-credentials: false
+      - name: Download the replayed ICKY package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          artifact-ids: ${{ needs.qualified-parser.outputs.package_artifact_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/k3-parser-receipt
+      - name: Download the genuine and counterexample compilers
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          artifact-ids: ${{ needs.native-consumer.outputs.compiler_artifact_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}
+      - name: Verify materials before independent replay
+        working-directory: ${{ runner.temp }}
+        run: |
+          test "$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)" = "$AICI_K3_REVISION"
+          printf '%s\n' "$ICKY_REVISION" | grep -Ex '[0-9a-f]{40}'
+          printf '%s\n' "$ICKY_PACKAGE_SHA256" | grep -Ex '[0-9a-f]{64}'
+          printf '%s\n' "$COMPILER_ARCHIVE_SHA256" | grep -Ex '[0-9a-f]{64}'
+          package="k3-parser-receipt/located-$ICKY_REVISION/icky-native.tar.gz"
+          printf '%s  %s\n' "$ICKY_PACKAGE_SHA256" "$package" "$COMPILER_ARCHIVE_SHA256" k3-native.tar.gz | sha256sum --check --strict
+          tar -xzf k3-native.tar.gz
+          sha256sum -c k3-mutant/binaries.sha256
+          test "$(cat k3-mutant/ick-source.txt)" = "$ICK_REVISION"
+          mkdir k3-parser
+          tar -xzf "$package" -C k3-parser
+      - name: Install the external process observer
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y strace
+      - name: Run the independent host semantic and ABI checks
+        run: >-
+          make -f tests/semantic-oracles/icky-compiler/Makefile check
+          ICK="$RUNNER_TEMP/ick-stage/bin/gcc"
+          ICK_MUTANT_FRONTEND="$RUNNER_TEMP/k3-mutant/cc1"
+          ICK_PARSER_PACKAGE="$RUNNER_TEMP/k3-parser"
+          BUILD="$RUNNER_TEMP/k3-replay"
+      - name: Record exact workflow inputs
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/k3-replay"
+          printf 'ick\t%s\nicky\t%s\naici\t%s\nparser_sha256\t%s\ncompiler_archive_sha256\t%s\n' \
+            "$ICK_REVISION" "$ICKY_REVISION" "$AICI_K3_REVISION" "$ICKY_PACKAGE_SHA256" "$COMPILER_ARCHIVE_SHA256" \
+            > "$RUNNER_TEMP/k3-replay/workflow-material.tsv"
+      - name: Retain independent host verdict and observations
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: icky-k3-host-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/k3-replay/
           if-no-files-found: error
           retention-days: 30
