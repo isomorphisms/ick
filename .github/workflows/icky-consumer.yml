@@ -17,9 +17,9 @@ env:
 
 jobs:
   qualified-parser:
-    uses: dilapidated-shed/icky/.github/workflows/icky-located-idric.yml@7e54fdb7402dab9baf44356c120c90e03805e5f8
+    uses: dilapidated-shed/icky/.github/workflows/icky-located-idric.yml@7e54fdb7402dab9baf44356c120c90e93805e5f8
     with:
-      parser_revision: 7e54fdb7402dab9baf44356c120c90e03805e5f8
+      parser_revision: 7e54fdb7402dab9baf44356c120c90e93805e5f8
 
   native-consumer:
     needs: qualified-parser
