@@ -48,6 +48,34 @@ oracle's first draft needed a typed contribution function for a conditional
 comprehension head; the Idriç correction is retained. CRT refusals and defects
 remain pending the integration gate.
 
-Chirp, exact recovery, exhaustive admitted shared-corpus
-execution and required defect/provenance gates are pending. Native and physical
-acceptance are separate subsequent jobs.
+The bounded target chirp implements the manuscript's permuted transform on the
+4 × 8 grid. It uses the certified phases with denominator 16, twists the
+contiguous length-eight axis into the negacyclic ring, and calls the retained
+motif convolution. The ring takes two radius-1/2 operands. The chirp divides
+both before grid truncation and restores the factor four after the untwist.
+The final endpoint phase writes to a temporary array and checks the output disk
+before committing. The plan reuses the two grids and the prepared kernel.
+
+Let the grid unit be 2^-256. Each endpoint or twist uses a disk phase within
+two grid units of the exact phase. Grid truncation contributes strictly less
+than two units. The first endpoint phase therefore costs less than four units.
+After twisting, halving and truncating, the data error is less than five units
+and the kernel error is less than four. Each computed and exact operand has
+radius at most 1/2, so the normalized exact convolution propagates these errors
+by less than five units. The four-record, two-round ring returns a squared
+error certificate of 1568 grid-unit squares, which is less than 40 squared.
+The untwist costs less than four further units. Restoring four gives an error
+less than 196 units. The last phase perturbation compares against an exact
+unit-disk value and adds less than four, for a total below 200 grid units.
+This leaves the enclosing 1024-unit parameter contract intact.
+
+The independent Idriç gate sums the directed positive-sign transform matrix
+at 384 bits, using the archived independent root bounds, and compares the
+candidate over six inputs including a dense Gaussian array and a unit impulse.
+It checks stage and refusal records alongside all 192 complex values. The
+wrong-sign untwist must execute the candidate path and fail the independent
+comparison.
+
+Ordered source-transform assembly, exact recovery, exhaustive admitted
+shared-corpus execution and whole-product defect and provenance gates remain
+pending. Native and physical acceptance are later jobs.
