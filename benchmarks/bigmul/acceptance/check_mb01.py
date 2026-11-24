@@ -17,6 +17,7 @@ def require(condition, message):
 
 
 def main():
+    compiler = os.environ.get("CC", "cc")
     receipt = {"job": "MB01", "status": "PASS", "scope": "host control; no paper-path proof", "runs": []}
     with tempfile.TemporaryDirectory(prefix="mb01-") as temporary:
         folder = Path(temporary)
@@ -39,7 +40,7 @@ def main():
                 "int mul_candidate(const uint32_t*a,size_t na,const uint32_t*b,size_t nb,uint32_t*out){"
                 "(void)a;(void)na;(void)b;(void)nb;(void)out;" + body + "}\n")
             binary = folder / name
-            identity = build_provider(source, binary, os.environ.get("CC", "cc"),
+            identity = build_provider(source, binary, compiler,
                                       ["-O2", "-std=c11", "-D_POSIX_C_SOURCE=200809L"],
                                       "baseline", name, "control-limb32-v1")
             manifest = folder / f"{name}.json"
@@ -104,7 +105,8 @@ def main():
                                         "stdout": json.loads(run.stdout)})
         source.write_text("invalid C source\n")
         run = subprocess.run([sys.executable, str(Path(__file__).with_name("runner.py")),
-                              "--candidate-source", str(source), "--output-binary", str(binary)],
+                              "--candidate-source", str(source), "--output-binary", str(binary),
+                              "--compiler", compiler],
                              capture_output=True, text=True, timeout=30)
         require(run.returncode != 0 and "build_failure" in run.stdout and "stderr" in run.stdout,
                 "build failure lost status/diagnostics")

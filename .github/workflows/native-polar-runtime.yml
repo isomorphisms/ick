@@ -85,3 +85,5 @@ jobs:
             build/native-polar/compiler.sha256
             build/native-polar/native-stage.sha256
             build/native-polar/native-stage.tar.gz
+      - name: Execute bigmul correctness and refusal controls with staged native ICK
+        run: make -f qualification/native-polar/Makefile check-bigmul
