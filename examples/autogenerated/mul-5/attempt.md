@@ -76,6 +76,24 @@ It checks stage and refusal records alongside all 192 complex values. The
 wrong-sign untwist must execute the candidate path and fail the independent
 comparison.
 
-Ordered source-transform assembly, exact recovery, exhaustive admitted
-shared-corpus execution and whole-product defect and provenance gates remain
-pending. Native and physical acceptance are later jobs.
+The reduced source transform now embeds the active 3 × 5 source in the same
+4 × 8 box and executes the ordered Gaussian expansion, the accepted chirp,
+reverse-order compression and the exact factor 2^144. The opposite direction
+conjugates the input and output. The two ordered Gaussian maps contribute
+less than 4p² grid units together and the chirp contributes less than 1024.
+The propagated error after the exact scale is therefore strictly below
+(4p² + 1024)2^144 grid units. The half-disk input restriction leaves the
+computed result inside the disk by a strict margin. The two tensor sweeps
+execute 24 line calls. The line receipt counts these completed line calls
+independently of the two box commits.
+
+The separate 384-bit matrix reference uses source lengths 3 and 5. It reads
+their Fourier output at frequencies 4 times the first output index and
+8 times the second output index, normalized by 15. The gate compares both
+signs over five source tensors and checks all 170 padded coordinates for
+exact zeroes. The incorrect scale control must complete the implementation
+path and fail the independent comparison.
+
+Coefficient recovery, carries, exhaustive admitted shared-corpus execution
+and whole-product defect and provenance gates remain pending. Native and
+physical acceptance of whole products are later jobs.

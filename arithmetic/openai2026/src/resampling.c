@@ -188,7 +188,7 @@ static exact_status commit(resampling_plan *plan,exact_gaussian *out,const exact
   }
   for (size_t index=0;index<length;++index) for (unsigned component=0;component<2;++component)
     (void)exact_copy(channel(&out[index],component),const_channel(&in[index],component));
-  ++plan->work.line_calls; return EXACT_OK;
+  return EXACT_OK;
 }
 exact_status resampling_A(resampling_plan *plan,const exact_gaussian *in,size_t input_length,exact_gaussian *out,size_t output_length) {
   if (!plan || input_length!=plan->parameters.source_length || output_length!=plan->parameters.target_length) return EXACT_INVALID;
@@ -206,6 +206,7 @@ exact_status resampling_A(resampling_plan *plan,const exact_gaussian *in,size_t 
   for (size_t row=0;row<output_length;++row) { TRY(exact_set(&result[row].real,0,0)); TRY(exact_set(&result[row].imaginary,0,0)); }
 #endif
   TRY(commit(plan,out,result,output_length));
+  ++plan->work.line_calls;
 done:
   vector_clear(result,output_length); exact_clear(&temporary); return status;
 }
@@ -261,6 +262,7 @@ exact_status resampling_B0(resampling_plan *plan,const exact_gaussian *in,size_t
   for (size_t row=0;row<output_length;++row) { TRY(exact_set(&result[row].real,0,0)); TRY(exact_set(&result[row].imaginary,0,0)); }
 #endif
   TRY(commit(plan,out,result,output_length));
+  ++plan->work.line_calls;
 done:
   vector_clear(term,output_length); vector_clear(next,output_length); vector_clear(result,output_length); exact_clear(&temporary); return status;
 }

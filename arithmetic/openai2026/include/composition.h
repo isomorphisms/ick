@@ -36,6 +36,19 @@ exact_status composition_chirp_prepare(uint64_t record_budget,composition_chirp_
 void composition_chirp_clear(composition_chirp_plan *);
 exact_status composition_chirp(composition_chirp_plan *,const exact_gaussian *,size_t,
                                exact_gaussian *,size_t,composition_trace *,composition_observer,void *);
+typedef struct composition_source_plan composition_source_plan;
+/* Reduced 3 by 5 source in a 4 by 8 row-major box. Input and output use the
+ * p-bit disk grid and must be disjoint. The input norm is at most one half.
+ * Both directions preserve source padding. The observer sees four outer
+ * stages. The receipt counts the five chirp stages in place of its single
+ * outer chirp event.
+ * The budget covers tensor, coefficient and chirp record slots. Calls use
+ * the plan sequentially, and failures leave the caller's output untouched. */
+exact_status composition_source_prepare(uint64_t record_budget,composition_source_plan **);
+void composition_source_clear(composition_source_plan *);
+exact_status composition_source_transform(composition_source_plan *,const exact_gaussian *,size_t,
+                                           exact_gaussian *,size_t,int opposite,composition_trace *,
+                                           composition_observer,void *);
 exact_status composition_prepare(composition_profile,uint64_t record_budget,composition_context **);
 void composition_clear(composition_context *);
 /* ASCII MSB-first bits, lengths 1..8; output is exactly twice the larger
