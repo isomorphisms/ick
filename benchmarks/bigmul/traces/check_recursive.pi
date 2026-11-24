@@ -1,0 +1,337 @@
+"""Check executed retained Karatsuba recursion; no paper/provider speed claim."""
+import hashlib
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+from builtins import list, dict, ValueError
+
+ROOT ∈ str ← str(Path(__file__).resolve().parent.parent)
+ZERO_SHA ∈ str ← "0000000000000000000000000000000000000000000000000000000000000000"
+
+def require(condition ∈ bool, diagnostic ∈ str) → None:
+    if not condition:
+        raise ValueError(diagnostic)
+
+def digest(path ∈ str) → str:
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+def value(words ∈ list[int]) → int:
+    result ∈ int ← 0
+    for index in range(len(words)):
+        result ← result + (words[index] << (32*index))
+    return result
+
+def filled(word ∈ int, count ∈ int) → list[int]:
+    result ∈ list[int] ← []
+    for index in range(count):
+        result.append(word)
+    return result
+
+def absolute(number ∈ int) → int:
+    return -number if number < 0 else number
+
+def padded(words ∈ list[int], count ∈ int) → list[int]:
+    result ∈ list[int] ← list(words)
+    while len(result) < count:
+        result.append(0)
+    return result
+
+def invocation(program ∈ str, arguments ∈ list[str]) → list[str]:
+    result ∈ list[str] ← [program]
+    result.extend(arguments)
+    return result
+
+def decode(text ∈ str, count ∈ int) → list[int]:
+    tokens ∈ list[str] ← text.split(",")
+    require(len(tokens) == count, "limb snapshot length")
+    for token in tokens:
+        require(len(token) == 8, "invalid limb snapshot")
+        for index in range(len(token)):
+            require(token[index] in "0123456789abcdef", "invalid limb snapshot")
+    result ∈ list[int] ← []
+    for token in tokens:
+        result.append(int(token,16))
+    return result
+
+def case_hash(left ∈ list[int], right ∈ list[int]) → str:
+    encoded ∈ bytes ← len(left).to_bytes(4,"little")
+    right_count ∈ bytes ← len(right).to_bytes(4,"little")
+    encoded ← encoded + right_count
+    combined ∈ list[int] ← list(left)
+    combined.extend(right)
+    for word in combined:
+        word_bytes ∈ bytes ← word.to_bytes(4,"little")
+        encoded ← encoded + word_bytes
+    return hashlib.sha256(encoded).hexdigest()
+
+def validate(text ∈ str, provider ∈ str, driver ∈ str, manifest ∈ str, binary ∈ str, left ∈ list[int], right ∈ list[int]) → list[int]:
+    lines ∈ list[str] ← text.splitlines()
+    require(len(lines) >= 13 and lines[0] == "recursive-trace-v1", "recursive trace version")
+    metadata ∈ list[str] ← ["provider_source_sha256\t" + provider, "driver_source_sha256\t" + driver, "source_manifest_sha256\t" + manifest, "binary_sha256\t" + binary, "case_sha256\t" + case_hash(left,right), "profile\texecuted-karatsuba-control", "coordinate_space\tlogical-call-and-limb-index", "maximum_operand_limbs\t64", "complete\t1"]
+    require(lines[1:10] == metadata, "trace source/profile/identity/completeness")
+    require(lines[10] == "seq\tkind\tnode\tparent\twidth\tword_bits\tunits\tpayload", "recursive event schema")
+    require(lines[-1].startswith("product\t"), "missing final product")
+    require(len(lines)-12 <= 128, "trace budget exceeded")
+    nodes ∈ list[dict[str, object]] ← []
+    stack ∈ list[int] ← []
+    root_width ∈ int ← 1
+    while root_width < len(left) or root_width < len(right):
+        root_width ← root_width * 2
+    for sequence in range(len(lines)-12):
+        fields ∈ list[str] ← lines[11+sequence].split("\t")
+        require(len(fields) == 8, "recursive event row width")
+        require(int(fields[0]) == sequence, "dropped or duplicate sequence")
+        kind ∈ str ← fields[1]
+        node_id ∈ int ← int(fields[2])
+        parent ∈ int ← -1 if fields[3] == "-" else int(fields[3])
+        width ∈ int ← int(fields[4])
+        require(fields[5] == "32", "recursive word width")
+        units ∈ str ← fields[6]
+        payload ∈ str ← fields[7]
+        require(units == ("limb-pairs" if kind == "schoolbook-call" else "limbs"), "unsupported recursive units")
+        expected_parent ∈ int ← -1 if len(stack) == 0 else stack[-1]
+        if kind == "enter":
+            require(node_id == len(nodes) and parent == expected_parent, "bad recursive parent")
+            require(width > 0 and width <= 64 and (width & (width-1)) == 0, "recursive input width")
+            pair ∈ list[str] ← payload.split("|")
+            require(len(pair) == 2, "recursive input pair")
+            a ∈ list[int] ← decode(pair[0],width)
+            b ∈ list[int] ← decode(pair[1],width)
+            if parent == -1:
+                require(node_id == 0 and width == root_width and a == padded(left,width) and b == padded(right,width), "wrong root input")
+            else:
+                owner ∈ dict[str, object] ← nodes[parent]
+                owner_width ∈ int ← int(owner["width"])
+                half ∈ int ← owner_width // 2
+                children ∈ list[int] ← list(owner["children"])
+                require(owner_width > 16 and width == half and len(children) < 3 and int(owner["difference"]) == 1, "recursive decomposition order")
+                owner_left ∈ list[int] ← list(owner["left"])
+                owner_right ∈ list[int] ← list(owner["right"])
+                if len(children) == 0:
+                    require(a == owner_left[:half] and b == owner_right[:half], "wrong low subproduct")
+                elif len(children) == 1:
+                    require(a == owner_left[half:] and b == owner_right[half:], "wrong high subproduct")
+                else:
+                    require(value(a) == absolute(value(owner_left[half:])-value(owner_left[:half])) and value(b) == absolute(value(owner_right[half:])-value(owner_right[:half])), "wrong difference subproduct")
+                children.append(node_id)
+                owner["children"] ← children
+            new_children ∈ list[int] ← []
+            new_output ∈ list[int] ← []
+            nodes.append({"width":width,"parent":parent,"left":a,"right":b,"children":new_children,"allocation":0,"free":0,"difference":0,"leaf":0,"output":new_output})
+            stack.append(node_id)
+        else:
+            require(len(stack) > 0 and stack[-1] == node_id and node_id < len(nodes), "event outside active call")
+            node ∈ dict[str, object] ← nodes[node_id]
+            n ∈ int ← int(node["width"])
+            require(parent == int(node["parent"]), "changed recursive parent")
+            if kind == "scratch-allocate":
+                require(n > 16 and width == 5*n+1 and payload == "scratch" and int(node["allocation"]) == 0, "scratch allocation")
+                node["allocation"] ← 1
+            elif kind == "difference":
+                require(n > 16 and width == n//2 and int(node["allocation"]) == 1 and int(node["difference"]) == 0, "difference lifetime")
+                pair ∈ list[str] ← payload.split("|")
+                require(len(pair) == 2, "difference snapshot pair")
+                a ∈ list[int] ← list(node["left"])
+                b ∈ list[int] ← list(node["right"])
+                require(value(decode(pair[0],width)) == absolute(value(a[width:])-value(a[:width])) and value(decode(pair[1],width)) == absolute(value(b[width:])-value(b[:width])), "wrong difference movement")
+                node["difference"] ← 1
+            elif kind == "schoolbook-call":
+                require(n <= 16 and width == n and int(payload) == n*n and int(node["leaf"]) == 0, "schoolbook operation count")
+                node["leaf"] ← 1
+            elif kind == "scratch-free":
+                children ∈ list[int] ← list(node["children"])
+                require(n > 16 and width == 5*n+1 and payload == "scratch" and int(node["allocation"]) == 1 and int(node["free"]) == 0 and len(children) == 3, "scratch lifetime")
+                node["free"] ← 1
+            elif kind == "leave":
+                require(width == n, "return width")
+                children ∈ list[int] ← list(node["children"])
+                require((n <= 16 and int(node["leaf"]) == 1 and len(children) == 0 and int(node["allocation"]) == 0) or (n > 16 and len(children) == 3 and int(node["allocation"]) == 1 and int(node["free"]) == 1 and int(node["difference"]) == 1), "incomplete recursive call")
+                product ∈ list[int] ← decode(payload,2*n)
+                a ∈ list[int] ← list(node["left"])
+                b ∈ list[int] ← list(node["right"])
+                require(value(product) == value(a)*value(b), "wrong recursive product")
+                node["output"] ← product
+                stack.pop()
+            else:
+                raise ValueError("unsupported recursive event")
+    require(len(stack) == 0 and len(nodes) > 0, "unfinished recursive stack")
+    root_product ∈ list[int] ← list(nodes[0]["output"])
+    final_fields ∈ list[str] ← lines[-1].split("\t")
+    require(len(final_fields) == 2,"final product schema")
+    final_product ∈ list[int] ← decode(final_fields[1],len(left)+len(right))
+    require(final_product == root_product[:len(left)+len(right)] and value(final_product) == value(left)*value(right), "wrong returned product")
+    leaf_count ∈ int ← 1
+    expected_calls ∈ int ← 1
+    while root_width > 16:
+        root_width ← root_width // 2
+        leaf_count ← leaf_count * 3
+        expected_calls ← expected_calls + leaf_count
+    require(len(nodes) == expected_calls, "recursive call count")
+    return final_product
+
+def checked(argv ∈ list[str]) → object:
+    result ∈ object ← subprocess.run(argv,capture_output=True,text=True,timeout=60)
+    require(int(result.returncode) == 0,"child failed: " + str(result.stderr))
+    return result
+
+def altered_word(text ∈ str, kind ∈ str) → str:
+    lines ∈ list[str] ← text.splitlines()
+    changed ∈ bool ← False
+    for index in range(11,len(lines)-1):
+        fields ∈ list[str] ← lines[index].split("\t")
+        if not changed and fields[1] == kind:
+            pair ∈ list[str] ← fields[7].split("|")
+            words ∈ list[str] ← pair[0].split(",")
+            words[0] ← "00000001" if words[0] == "00000000" else "00000000"
+            pair[0] ← ",".join(words)
+            fields[7] ← "|".join(pair)
+            lines[index] ← "\t".join(fields)
+            changed ← True
+    require(changed,"trace mutation found no target")
+    result ∈ str ← "\n".join(lines)
+    return result + "\n"
+
+def missing_free(text ∈ str) → str:
+    lines ∈ list[str] ← text.splitlines()
+    result ∈ list[str] ← list(lines[:11])
+    sequence ∈ int ← 0
+    removed ∈ bool ← False
+    for index in range(11,len(lines)-1):
+        fields ∈ list[str] ← lines[index].split("\t")
+        if not removed and fields[1] == "scratch-free":
+            removed ← True
+        else:
+            fields[0] ← str(sequence)
+            result.append("\t".join(fields))
+            sequence ← sequence + 1
+    result.append(lines[-1])
+    require(removed,"trace mutation found no scratch free")
+    joined ∈ str ← "\n".join(result)
+    return joined + "\n"
+
+def build(folder ∈ str, observed ∈ bool) → str:
+    compiler ∈ str ← str(shutil.which(os.environ.get("CC","cc")))
+    require(compiler != "None","host control compiler unavailable")
+    flags ∈ list[str] ← ["-O2","-std=c11","-D_POSIX_C_SOURCE=200809L","-Wall","-Wextra","-Werror"]
+    print("COMPILER\t"+compiler+"\tsha256="+digest(compiler)+"\tflags=-O2 -std=c11 -D_POSIX_C_SOURCE=200809L -Wall -Wextra -Werror\ttrace_build="+str(observed))
+    objects ∈ list[str] ← []
+    for source in ["mulbench.c","providers/karatsuba.c","traces/recursive_trace.c"]:
+        basename ∈ str ← source.replace("/","-")
+        output ∈ str ← folder + "/" + basename + ".o"
+        argv ∈ list[str] ← [compiler]
+        argv.extend(flags)
+        if source == "mulbench.c":
+            argv.append("-Dmain=mb17_unused_main")
+        elif observed:
+            argv.append("-DMB17_TRACE")
+        argv.extend(["-c",ROOT+"/"+source,"-o",output])
+        checked(argv)
+        objects.append(output)
+    program ∈ str ← folder + "/recursive"
+    linker ∈ list[str] ← [compiler]
+    linker.extend(objects)
+    linker.extend(["-o",program])
+    checked(linker)
+    return program
+
+def main() → None:
+    temporary ∈ object ← tempfile.TemporaryDirectory(prefix="mb17-recursive-")
+    folder ∈ str ← temporary.name
+    try:
+        Path(folder+"/traced").mkdir()
+        Path(folder+"/plain").mkdir()
+        traced ∈ str ← build(folder+"/traced",True)
+        plain ∈ str ← build(folder+"/plain",False)
+        provider ∈ str ← digest(ROOT+"/providers/karatsuba.c")
+        driver ∈ str ← digest(ROOT+"/traces/recursive_trace.c")
+        source_paths ∈ list[str] ← ["providers/karatsuba.c","providers/providers.h","traces/recursive_trace.c","traces/recursive_trace.h","mulbench.c"]
+        if Path(ROOT+"/abi/checked_product.h").is_file():
+            source_paths.append("abi/checked_product.h")
+        manifest_text ∈ str ← ""
+        for source_path in source_paths:
+            manifest_text ← manifest_text + source_path + "\t" + digest(ROOT+"/"+source_path) + "\n"
+        manifest ∈ str ← hashlib.sha256(manifest_text.encode("utf-8")).hexdigest()
+        print("SOURCE_MANIFEST\t"+manifest)
+        print(manifest_text,end="")
+        binary ∈ str ← digest(traced)
+        print("PLAIN_BINARY\tsha256="+digest(plain))
+        print("VERIFIER\tsha256="+digest(str(Path(__file__).resolve())))
+        dense_left ∈ list[int] ← []
+        dense_right ∈ list[int] ← []
+        for index in range(64):
+            dense_left.append(index*65537)
+            dense_right.append(4294967295-index)
+        cases ∈ list[list[list[int]]] ← [[filled(0,16),filled(0,16)],[filled(4294967295,32),filled(4294967295,32)],[dense_left,dense_right],[filled(1,17),[3,4,5]]]
+        trace_text ∈ str ← ""
+        output ∈ str ← str(os.environ.get("MB17_RECURSIVE_RAW",""))
+        if output != "":
+            Path(output).mkdir(parents=True,exist_ok=True)
+            Path(output+"/sources.tsv").write_text(manifest_text,encoding="utf-8")
+        for index in range(len(cases)):
+            left ∈ list[int] ← cases[index][0]
+            right ∈ list[int] ← cases[index][1]
+            arguments ∈ list[str] ← [provider,driver,binary,case_hash(left,right),manifest,str(len(left)),str(len(right))]
+            combined ∈ list[int] ← list(left)
+            combined.extend(right)
+            for word in combined:
+                arguments.append(str(word))
+            before ∈ int ← time.perf_counter_ns()
+            execution ∈ object ← checked(invocation(traced,arguments))
+            after ∈ int ← time.perf_counter_ns()
+            traced_endpoint ∈ int ← after-before
+            trace_text ← str(execution.stdout)
+            product ∈ list[int] ← validate(trace_text,provider,driver,manifest,binary,left,right)
+            before ← time.perf_counter_ns()
+            baseline ∈ object ← checked(invocation(plain,arguments))
+            after ← time.perf_counter_ns()
+            plain_endpoint ∈ int ← after-before
+            recorded_lines ∈ list[str] ← trace_text.splitlines()
+            require(str(baseline.stdout) == recorded_lines[-1]+"\n","observed/unobserved output bytes differ")
+            print("PASS\tcase\t"+str(index)+"\t"+case_hash(left,right)+"\ttrace_endpoint_ns="+str(traced_endpoint)+"\tplain_endpoint_ns="+str(plain_endpoint)+"\toutput_words="+str(len(product)))
+            if output != "":
+                Path(output+"/case-"+str(index)+".tsv").write_text(trace_text,encoding="utf-8")
+        left ← cases[-1][0]
+        right ← cases[-1][1]
+        lines ∈ list[str] ← trace_text.splitlines()
+        dropped ∈ list[str] ← list(lines)
+        dropped.pop(12)
+        dropped_text ∈ str ← "\n".join(dropped)
+        mutants ∈ list[str] ← [trace_text.replace(binary,ZERO_SHA,1),trace_text.replace("complete\t1","complete\t0",1),trace_text.replace("\t32\tlimbs\t","\t32\tbytes\t",1),trace_text.replace("\n1\t","\n0\t",1),dropped_text+"\n",missing_free(trace_text),trace_text.replace("\tenter\t1\t0\t","\tenter\t1\t99\t",1),altered_word(trace_text,"leave")]
+        diagnostics ∈ list[str] ← ["trace source/profile/identity/completeness","trace source/profile/identity/completeness","unsupported recursive units","dropped or duplicate sequence","dropped or duplicate sequence","incomplete recursive call","bad recursive parent","wrong recursive product"]
+        rejected ∈ int ← 0
+        for index in range(len(mutants)):
+            try:
+                validate(mutants[index],provider,driver,manifest,binary,left,right)
+            except ValueError as error:
+                diagnostic ∈ str ← str(error)
+                require(diagnostics[index] in diagnostic,"trace mutant failed for wrong reason: "+diagnostic)
+                rejected ← rejected + 1
+                print("PASS\trefused\t"+str(index)+"\t"+diagnostic)
+        require(rejected == len(mutants),"recursive trace mutant escaped")
+        budget_arguments ∈ list[str] ← [traced,provider,driver,binary,ZERO_SHA,manifest,"65","1"]
+        for index in range(66):
+            budget_arguments.append("1")
+        require(int(subprocess.run(budget_arguments,capture_output=True).returncode) != 0,"trace operand budget not enforced")
+        # A separate alternating-order process-endpoint experiment. Formatting,
+        # launch and collection are included; this is not kernel overhead.
+        for trial in range(6):
+            programs ∈ list[str] ← [traced,plain] if trial % 2 == 0 else [plain,traced]
+            durations ∈ dict[str,int] ← {}
+            for program in programs:
+                before ← time.perf_counter_ns()
+                observed ∈ object ← checked(invocation(program,arguments))
+                after ← time.perf_counter_ns()
+                durations[program] ← after-before
+                observed_lines ∈ list[str] ← str(observed.stdout).splitlines()
+                require(observed_lines[-1] == lines[-1],"observer experiment changed product")
+            print("OBSERVER_ENDPOINT\ttrial="+str(trial)+"\torder="+("traced-first" if trial % 2 == 0 else "plain-first")+"\ttrace_ns="+str(durations[traced])+"\tplain_ns="+str(durations[plain])+"\tincludes=startup-formatting-collection")
+        print("PASS\tMB17_RECURSIVE\tcases="+str(len(cases))+"\trefused_trace_mutants="+str(rejected)+"\tprovider_sha256="+provider+"\tdriver_sha256="+driver+"\tbinary_sha256="+binary+"\tcoordinate_space=logical-call-and-limb-index")
+    finally:
+        temporary.cleanup()
+
+if __name__ == "__main__":
+    main()
