@@ -87,3 +87,37 @@ jobs:
             build/native-polar/native-stage.tar.gz
       - name: Execute bigmul correctness and refusal controls with staged native ICK
         run: make -f qualification/native-polar/Makefile check-bigmul
+      - name: Check out the pinned benchmark Ithon frontend
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: dilapidated-shed/ithon
+          ref: 74ab6d6044b07b76a910978437a34a6b5ac6acda
+          path: .benchmark-tools/ithon
+          persist-credentials: false
+      - name: Measure hot multiplication with staged native ICK
+        id: ick-bigmul-timing
+        env:
+          CC: ${{ github.workspace }}/build/native-polar/stage/bin/gcc
+          ITHON_PYTHON: /usr/bin/python3
+          ITHON_CHECK_RECEIPT: ${{ github.workspace }}/build/native-polar/bigmul/ithon.jsonl
+        run: |
+          receipt_dir=build/native-polar/bigmul
+          ithon=.benchmark-tools/ithon/ithon
+          mkdir -p "$receipt_dir"
+          cp build/native-polar/source.txt build/native-polar/compiler.sha256 \
+            build/native-polar/ick-runtime.sha256 "$receipt_dir/"
+          sha256sum "$(realpath "$("$CC" -print-file-name=libgmp.so)")" > "$receipt_dir/gmp-library.sha256"
+          "$ithon" .benchmark-tools/ithon/tests/qualify-host-control.pi \
+            "$receipt_dir/ithon-qualification.json"
+          "$ithon" benchmarks/bigmul/modes/hot/check_mb07.pi --require-gmp \
+            --output "$receipt_dir/mb07.json" > /dev/null
+          "$ithon" benchmarks/bigmul/analysis/check_mb12.pi --input "$receipt_dir/mb07.json" \
+            --output "$receipt_dir/mb12.json" > /dev/null
+      - name: Retain raw native ICK timing and paired analysis
+        if: ${{ !cancelled() && (steps.ick-bigmul-timing.outcome == 'success' || steps.ick-bigmul-timing.outcome == 'failure') }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: bigmul-native-ick-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/native-polar/bigmul/
+          if-no-files-found: error
+          retention-days: 30
